@@ -180,6 +180,19 @@ func (p *Plugin) UserHasBeenDeactivated(c *plugin.Context, user *model.User) {
 }
 
 func (p *Plugin) MessageWillBePosted(c *plugin.Context, post *model.Post) (*model.Post, string) {
+	enriched := p.enrichMRLinks(post)
+	if enriched {
+		// Run code previews through the existing hook using the enriched text.
+		updated, reason := p.messageCodePreview(c, post)
+		if updated != nil {
+			return updated, reason
+		}
+		return post, reason
+	}
+	return p.messageCodePreview(c, post)
+}
+
+func (p *Plugin) messageCodePreview(c *plugin.Context, post *model.Post) (*model.Post, string) {
 	// If not enabled in config, ignore.
 	if p.getConfiguration().EnableCodePreview == "disable" {
 		return nil, ""
