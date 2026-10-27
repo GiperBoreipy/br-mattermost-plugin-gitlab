@@ -34,6 +34,7 @@ type GitlabRetreiver interface {
 }
 
 type HandleWebhook struct {
+	Mention    bool
 	Message    string
 	From       string
 	ToUsers    []string
@@ -93,6 +94,7 @@ func cleanWebhookHandlerTo(handler *HandleWebhook) *HandleWebhook {
 	}
 
 	return &HandleWebhook{
+		Mention:    handler.Mention,
 		From:       handler.From,
 		Message:    handler.Message,
 		ToUsers:    cleanedUsers,
@@ -112,6 +114,7 @@ func (w *webhook) handleMention(m mentionDetails) *HandleWebhook {
 	mentionedUsernames := w.gitlabRetreiver.ParseGitlabUsernamesFromText(m.body)
 	if len(mentionedUsernames) > 0 {
 		return &HandleWebhook{
+			Mention: true,
 			From:    m.senderUsername,
 			Message: fmt.Sprintf("[%s](%s) mentioned you on [%s#%s](%s):\n>%s", m.senderUsername, w.gitlabRetreiver.GetUserURL(m.senderUsername), m.pathWithNamespace, m.IID, m.URL, m.body),
 			ToUsers: mentionedUsernames,

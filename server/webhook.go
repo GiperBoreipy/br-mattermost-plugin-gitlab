@@ -4,10 +4,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"hash"
@@ -31,6 +33,7 @@ const (
 	eventSourceParentPipeline = "parent_pipeline"
 
 	webhookDedupTTL         = 30 * time.Second
+	eventDeliveryDedupTTL   = 24 * time.Hour
 	notificationDedupKeyFmt = "notif_dedup_%s"
 	channelPostDedupKeyFmt  = "chan_dedup_%s"
 )
@@ -184,10 +187,18 @@ func (p *Plugin) handleWebhook(w http.ResponseWriter, r *http.Request) {
 
 	alreadySentRefresh := make(map[string]bool)
 	p.sendRefreshIfNotAlreadySent(alreadySentRefresh, fromUser)
+	deliveries := map[string]*eventDelivery{}
+	resolvedUsers := map[string]string{}
 	for _, res := range handlers {
-		p.client.Log.Info("new msg", "message", res.Message, "from", res.From)
 		for _, to := range res.ToUsers {
-			userTo := p.sendRefreshIfNotAlreadySent(alreadySentRefresh, to)
+			if to == res.From || to == fromUser {
+				continue
+			}
+			userTo, resolved := resolvedUsers[to]
+			if !resolved {
+				userTo = p.sendRefreshIfNotAlreadySent(alreadySentRefresh, to)
+				resolvedUsers[to] = userTo
+			}
 			if len(userTo) > 0 && len(res.Message) > 0 {
 				info, err := p.getGitlabUserInfoByMattermostID(userTo)
 				if err != nil {
@@ -195,17 +206,94 @@ func (p *Plugin) handleWebhook(w http.ResponseWriter, r *http.Request) {
 					continue
 				}
 				if info.Settings.Notifications {
-					p.sendDMNotification(userTo, res.Message)
+					channel, channelErr := p.client.Channel.GetDirect(userTo, p.BotUserID)
+					if channelErr != nil {
+						p.client.Log.Warn("can't resolve webhook DM channel", "user_id", userTo, "err", channelErr.Error())
+						continue
+					}
+					addEventDelivery(deliveries, channel.Id, res.Message, false, res.Mention)
 				}
 			}
 		}
 		for _, to := range res.ToChannels {
 			if len(res.Message) > 0 {
-				p.sendChannelNotification(to, res.Message)
+				addEventDelivery(deliveries, to, res.Message, true, false)
 			}
 		}
 		p.sendRefreshIfNotAlreadySent(alreadySentRefresh, res.From)
 	}
+	eventID := webhookEventIdentity(eventType, body)
+	for channelID, delivery := range deliveries {
+		key := "event_delivery_" + notificationDedupKey(channelID, eventID)
+		if deliver, _ := p.claimDedupKeyWithTTL("webhook delivery", key, eventDeliveryDedupTTL); !deliver {
+			continue
+		}
+		post := &model.Post{UserId: p.BotUserID, ChannelId: channelID, Message: delivery.message()}
+		if delivery.subscription == "" {
+			post.Type = "custom_git_review_request"
+		}
+		// Keep the claim on ambiguous CreatePost errors: the post may exist already.
+		if err := p.client.Post.CreatePost(post); err != nil {
+			p.client.Log.Warn("can't create post for webhook event", "channel_id", channelID, "err", err.Error())
+		}
+	}
+}
+
+type eventDelivery struct{ personal, subscription, mention string }
+
+func addEventDelivery(deliveries map[string]*eventDelivery, channel, message string, subscribed, mention bool) {
+	if channel == "" || message == "" {
+		return
+	}
+	d := deliveries[channel]
+	if d == nil {
+		d = &eventDelivery{}
+		deliveries[channel] = d
+	}
+	switch {
+	case subscribed:
+		if d.subscription == "" {
+			d.subscription = message
+		} else if d.subscription != message {
+			d.subscription += "\n\n" + message
+		}
+	case mention:
+		d.mention = message
+	default:
+		d.personal = message
+	}
+}
+
+func (d *eventDelivery) message() string {
+	if d.mention != "" {
+		if d.subscription != "" {
+			return d.mention + "\n\n" + d.subscription
+		}
+		return d.mention
+	}
+	if d.subscription != "" {
+		return d.subscription
+	}
+	return d.personal
+}
+
+// X-Gitlab-Webhook-UUID identifies a hook, not a logical event shared by project and
+// group hooks. Hash canonical event data instead. Note IDs distinguish identical
+// comments; action, timestamps and changes distinguish MR transitions.
+func webhookEventIdentity(eventType gitlabLib.EventType, body []byte) string {
+	var payload map[string]any
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
+	if decoder.Decode(&payload) == nil {
+		if attrs := payload["object_attributes"]; attrs != nil {
+			project, _ := payload["project"].(map[string]any)
+			user, _ := payload["user"].(map[string]any)
+			canonical, _ := json.Marshal([]any{eventType, project["id"], project["path_with_namespace"], attrs, payload["changes"], user["id"], user["username"]})
+			body = canonical
+		}
+	}
+	sum := sha256.Sum256(body)
+	return string(eventType) + ":" + hex.EncodeToString(sum[:])
 }
 
 // writeDedupToken length-prefixes s so distinct token sequences can't hash to
@@ -240,9 +328,13 @@ func channelPostDedupKey(channelID, message string) string {
 // error fails open, returning deliver with an empty token since nothing was
 // written.
 func (p *Plugin) claimDedupKey(caller, dedupKey string) (deliver bool, claimToken string) {
+	return p.claimDedupKeyWithTTL(caller, dedupKey, webhookDedupTTL)
+}
+
+func (p *Plugin) claimDedupKeyWithTTL(caller, dedupKey string, ttl time.Duration) (deliver bool, claimToken string) {
 	token := model.NewId()
 	claimed, err := p.client.KV.Set(dedupKey, []byte(token),
-		pluginapi.SetExpiry(webhookDedupTTL),
+		pluginapi.SetExpiry(ttl),
 		pluginapi.SetAtomic(nil),
 	)
 	switch {

@@ -353,7 +353,7 @@ func TestChannelPostDedupKey(t *testing.T) {
 
 func isDedupClaimOptions(opts model.PluginKVSetOptions) bool {
 	return opts.Atomic && opts.OldValue == nil &&
-		opts.ExpireInSeconds == int64(webhookDedupTTL/time.Second)
+		(opts.ExpireInSeconds == int64(webhookDedupTTL/time.Second) || opts.ExpireInSeconds == 86400)
 }
 
 // dedupKVFake emulates the KV store's atomic-claim and compare-and-delete
@@ -471,7 +471,7 @@ func TestHandleWebhookDeduplicatesDuplicateDelivery(t *testing.T) {
 	}
 
 	api.AssertNumberOfCalls(t, "CreatePost", 1)
-	assert.Equal(t, []string{notificationDedupKey("1", "hello")}, kv.keys())
+	assert.Equal(t, []string{"event_delivery_" + notificationDedupKey("dm-channel", webhookEventIdentity(gitlabLib.EventTypeNote, []byte(noteIssueCommentBody)))}, kv.keys())
 }
 
 func TestHandleWebhookDeduplicatesConcurrentDeliveries(t *testing.T) {
@@ -494,7 +494,7 @@ func TestHandleWebhookDeduplicatesConcurrentDeliveries(t *testing.T) {
 	wg.Wait()
 
 	api.AssertNumberOfCalls(t, "CreatePost", 1)
-	assert.Equal(t, []string{notificationDedupKey("1", "hello")}, kv.keys())
+	assert.Equal(t, []string{"event_delivery_" + notificationDedupKey("dm-channel", webhookEventIdentity(gitlabLib.EventTypeNote, []byte(noteIssueCommentBody)))}, kv.keys())
 }
 
 func TestSendDMNotificationFailsOpenOnKVError(t *testing.T) {
@@ -630,7 +630,7 @@ func TestHandleWebhookDeduplicatesDuplicateChannelDelivery(t *testing.T) {
 	}
 
 	api.AssertNumberOfCalls(t, "CreatePost", 1)
-	assert.Equal(t, []string{channelPostDedupKey("town-square", "hello")}, kv.keys())
+	assert.Equal(t, []string{"event_delivery_" + notificationDedupKey("town-square", webhookEventIdentity(gitlabLib.EventTypeMergeRequest, []byte(`{"user": {"username":"test"}}`)))}, kv.keys())
 }
 
 func TestHandleWebhookDeduplicatesConcurrentChannelDeliveries(t *testing.T) {
@@ -653,7 +653,7 @@ func TestHandleWebhookDeduplicatesConcurrentChannelDeliveries(t *testing.T) {
 	wg.Wait()
 
 	api.AssertNumberOfCalls(t, "CreatePost", 1)
-	assert.Equal(t, []string{channelPostDedupKey("town-square", "hello")}, kv.keys())
+	assert.Equal(t, []string{"event_delivery_" + notificationDedupKey("town-square", webhookEventIdentity(gitlabLib.EventTypeMergeRequest, []byte(`{"user": {"username":"test"}}`)))}, kv.keys())
 }
 
 func TestSendChannelNotification(t *testing.T) {
