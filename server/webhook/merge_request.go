@@ -195,6 +195,11 @@ func (w *webhook) handleChannelMergeRequest(ctx context.Context, event *gitlab.M
 		false,
 	)
 
+	subs, pathWarnings := w.filterMRPaths(ctx, subs, repo.PathWithNamespace, pr.IID, event.Labels, func(sub *subscription.Subscription) bool {
+		return (message != "" && sub.Merges()) || (len(assignMessages) > 0 && (sub.Merges() || sub.MergeRequestAssigns()))
+	})
+	warnings = append(warnings, pathWarnings...)
+
 	if len(message) > 0 {
 		toChannels, ws := filterChannelsByFeature(subs, event.Labels, (*subscription.Subscription).Merges)
 		warnings = append(warnings, ws...)

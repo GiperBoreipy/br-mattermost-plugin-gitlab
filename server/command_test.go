@@ -124,6 +124,14 @@ var subscribeCommandTests = []subscribeCommandTest{
 		noAccess:   true,
 		want:       "You don't have the permissions to create subscriptions for this project.",
 	},
+	{
+		testName:      "MR path filters preserve quoted paths and spaces",
+		parameters:    []string{"add", "group/project", `merges,merge_request_comments,path:"Assets/Editor/",path:"Project`, `Settings/config.asset"`},
+		mattermostURL: "example.com",
+		mockGitlab:    true,
+		webhookInfo:   []*gitlab.WebhookInfo{{}},
+		want:          subscribeSuccessMessage,
+	},
 
 	{
 		testName:   "Delete Missing Repository",

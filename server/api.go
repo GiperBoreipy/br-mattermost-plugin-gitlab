@@ -1061,6 +1061,7 @@ func (p *Plugin) getMergeRequestByNumber(c *UserContext, w http.ResponseWriter, 
 }
 
 type SubscriptionResponse struct {
+	Paths          []string `json:"paths,omitempty"`
 	RepositoryName string   `json:"repository_name"`
 	RepositoryURL  string   `json:"repository_url"`
 	Features       []string `json:"features"`
@@ -1073,6 +1074,7 @@ func subscriptionsToResponse(config *configuration, subscriptions []*subscriptio
 	subscriptionResponses := make([]SubscriptionResponse, 0, len(subscriptions))
 
 	for _, subscription := range subscriptions {
+		paths, _ := subscription.Paths()
 		features := []string{}
 		if len(subscription.Features) > 0 {
 			features = strings.Split(subscription.Features, ",")
@@ -1082,6 +1084,7 @@ func subscriptionsToResponse(config *configuration, subscriptions []*subscriptio
 		repositoryURL.Path = path.Join(gitlabURL.EscapedPath(), subscription.Repository)
 
 		subscriptionResponses = append(subscriptionResponses, SubscriptionResponse{
+			Paths:          paths,
 			RepositoryName: subscription.Repository,
 			RepositoryURL:  repositoryURL.String(),
 			Features:       features,

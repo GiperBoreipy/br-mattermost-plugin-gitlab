@@ -38,7 +38,8 @@ const commandHelp = `* |/gitlab connect| - Connect your Mattermost account to yo
 	* pipeline - includes pipeline runs
 	* tag - include tag creation
     * pull_reviews - includes merge request reviews
-	* label:"<label-1-name>","<label-2-name>" - must include "merges" or "issues" in feature list when using labels
+	* label:"bug",label:"review" - match any label; requires an MR or issue event feature
+	* path:"src/",path:"config.json" - match changed MR files; trailing slash means directory; supports merges, merge_request_comments and merge_request_assigns only
 	* deployments - includes deployments
 	* releases - includes releases
     * Defaults to "merges,issues,tag"
@@ -1152,7 +1153,7 @@ func (p *Plugin) getAutocompleteData(config *configuration) *model.AutocompleteD
 
 	subscriptionsAdd := model.NewAutocompleteData(commandAdd, "owner[/repo] [features]", "Subscribe the current channel to receive notifications from a project")
 	subscriptionsAdd.AddTextArgument("Project path: includes user or group name with optional slash project name", "owner[/repo]", "")
-	subscriptionsAdd.AddTextArgument("comma-delimited list of features to subscribe to: issues, confidential_issues, merges, pushes, issue_comments, merge_request_comments, merge_request_assigns, issue_assigns, pipeline, tag, pull_reviews, label:<labelName>, deployments, releases", "[features] (optional)", `/[^,-\s]+(,[^,-\s]+)*/`)
+	subscriptionsAdd.AddTextArgument("comma-delimited list of features: issues, confidential_issues, merges, pushes, issue_comments, merge_request_comments, merge_request_assigns, issue_assigns, pipeline, tag, pull_reviews, label:\"bug\", path:\"src/\" (MR only), deployments, releases", "[features] (optional)", `.*`)
 	subscriptions.AddCommand(subscriptionsAdd)
 
 	subscriptionsDelete := model.NewAutocompleteData(commandDelete, "owner[/repo]", "Unsubscribe the current channel from a repository")

@@ -4,6 +4,7 @@
 package subscription
 
 import (
+	"path"
 	"strconv"
 	"strings"
 
@@ -67,20 +68,24 @@ func extractLabels(features string) ([]string, error) {
 }
 
 func New(channelID, creatorID, features, repository string) (*Subscription, error) {
+	if _, err := extractPaths(features); err != nil {
+		return nil, err
+	}
 	// Validate label format ― allow any number of label tokens, but each must be quoted
 	if strings.Contains(features, "label:") {
 		labels, err := extractLabels(features)
 		if err != nil {
 			return nil, err
 		}
-		if len(labels) > 0 && !strings.Contains(features, "merges") && !strings.Contains(features, "issues") {
+		if len(labels) > 0 && !hasFeature(features, "merges") && !hasFeature(features, "issues") && !hasFeature(features, "confidential_issues") && !hasFeature(features, "merge_request_comments") && !hasFeature(features, "merge_request_assigns") && !hasFeature(features, "issue_comments") && !hasFeature(features, "issue_assigns") {
 			return nil, errors.New("label filters require 'merges' or 'issues' feature")
 		}
 	}
 
 	badFeatures := make([]string, 0)
 	for feature := range strings.SplitSeq(features, ",") {
-		if _, ok := allFeatures[feature]; !strings.HasPrefix(feature, "label:") && !ok {
+		feature = strings.TrimSpace(feature)
+		if _, ok := allFeatures[feature]; !strings.HasPrefix(feature, "label:") && !strings.HasPrefix(feature, "path:") && !ok {
 			badFeatures = append(badFeatures, feature)
 		}
 	}
@@ -96,44 +101,98 @@ func New(channelID, creatorID, features, repository string) (*Subscription, erro
 	}, nil
 }
 
+// Paths are kept in Features for backwards-compatible storage and command/API
+// round trips. A trailing slash explicitly denotes a directory.
+func extractPaths(features string) ([]string, error) {
+	var paths []string
+	for feature := range strings.SplitSeq(features, ",") {
+		raw, found := strings.CutPrefix(strings.TrimSpace(feature), "path:")
+		if !found {
+			continue
+		}
+		value, err := strconv.Unquote(strings.TrimSpace(raw))
+		if err != nil || value == "" || strings.HasPrefix(value, "/") || strings.ContainsAny(value, "\\\r\n\x00") || strings.Contains(value, ",") {
+			return nil, errors.New(`paths must be quoted repository-relative paths, e.g. path:"src/"; commas are unsupported`)
+		}
+		trimmed := strings.TrimSuffix(value, "/")
+		if trimmed == "." || path.Clean(trimmed) != trimmed || trimmed == ".." || strings.HasPrefix(trimmed, "../") {
+			return nil, errors.New("paths must not contain empty, dot or parent segments")
+		}
+		paths = append(paths, value)
+	}
+	if len(paths) > 0 {
+		for feature := range strings.SplitSeq(features, ",") {
+			feature = strings.TrimSpace(feature)
+			if strings.HasPrefix(feature, "label:") || strings.HasPrefix(feature, "path:") || feature == "merges" || feature == "merge_request_comments" || feature == "merge_request_assigns" {
+				continue
+			}
+			return nil, errors.New("path filters support only merges, merge_request_comments and merge_request_assigns")
+		}
+		if !hasFeature(features, "merges") && !hasFeature(features, "merge_request_comments") && !hasFeature(features, "merge_request_assigns") {
+			return nil, errors.New("path filters require a merge request event feature")
+		}
+	}
+	return paths, nil
+}
+
+func (s *Subscription) Paths() ([]string, error) { return extractPaths(s.Features) }
+
+func (s *Subscription) MatchesPaths(changed []string) (bool, error) {
+	paths, err := s.Paths()
+	if err != nil {
+		return false, err
+	}
+	if len(paths) == 0 {
+		return true, nil
+	}
+	for _, filter := range paths {
+		for _, file := range changed {
+			if file == filter || (strings.HasSuffix(filter, "/") && strings.HasPrefix(file, filter)) {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
 func (s *Subscription) Merges() bool {
-	return strings.Contains(s.Features, "merges")
+	return hasFeature(s.Features, "merges")
 }
 
 func (s *Subscription) Jobs() bool {
-	return strings.Contains(s.Features, "jobs")
+	return hasFeature(s.Features, "jobs")
 }
 
 func (s *Subscription) Issues() bool {
-	return strings.Contains(s.Features, "issues")
+	return hasFeature(s.Features, "issues") || s.ConfidentialIssues()
 }
 
 func (s *Subscription) ConfidentialIssues() bool {
-	return strings.Contains(s.Features, "confidential_issues")
+	return hasFeature(s.Features, "confidential_issues")
 }
 
 func (s *Subscription) Pushes() bool {
-	return strings.Contains(s.Features, "pushes")
+	return hasFeature(s.Features, "pushes")
 }
 
 func (s *Subscription) IssueComments() bool {
-	return strings.Contains(s.Features, "issue_comments")
+	return hasFeature(s.Features, "issue_comments")
 }
 
 func (s *Subscription) MergeRequestComments() bool {
-	return strings.Contains(s.Features, "merge_request_comments")
+	return hasFeature(s.Features, "merge_request_comments")
 }
 
 func (s *Subscription) Pipeline() bool {
-	return strings.Contains(s.Features, "pipeline")
+	return hasFeature(s.Features, "pipeline")
 }
 
 func (s *Subscription) Tag() bool {
-	return strings.Contains(s.Features, "tag")
+	return hasFeature(s.Features, "tag")
 }
 
 func (s *Subscription) PullReviews() bool {
-	return strings.Contains(s.Features, "pull_reviews")
+	return hasFeature(s.Features, "pull_reviews")
 }
 
 func (s *Subscription) Labels() ([]string, error) {
@@ -142,17 +201,26 @@ func (s *Subscription) Labels() ([]string, error) {
 }
 
 func (s *Subscription) Releases() bool {
-	return strings.Contains(s.Features, "releases")
+	return hasFeature(s.Features, "releases")
 }
 
 func (s *Subscription) Deployments() bool {
-	return strings.Contains(s.Features, "deployments")
+	return hasFeature(s.Features, "deployments")
 }
 
 func (s *Subscription) MergeRequestAssigns() bool {
-	return strings.Contains(s.Features, "merge_request_assigns")
+	return hasFeature(s.Features, "merge_request_assigns")
 }
 
 func (s *Subscription) IssueAssigns() bool {
-	return strings.Contains(s.Features, "issue_assigns")
+	return hasFeature(s.Features, "issue_assigns")
+}
+
+func hasFeature(features, wanted string) bool {
+	for feature := range strings.SplitSeq(features, ",") {
+		if strings.TrimSpace(feature) == wanted {
+			return true
+		}
+	}
+	return false
 }

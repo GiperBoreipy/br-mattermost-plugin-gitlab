@@ -84,16 +84,27 @@ const Subscription = (props: SubscriptionProps) => {
             <div>
                 <h2 className='gitlab-rhs-SubscriptionHeader'>{'Features'}</h2>
                 <div className='gitlab-rhs-Features'>
-                    {props.features.map((feature) => (
+                    {props.features.filter((feature) => !feature.trim().startsWith('path:')).map((feature) => (
                         <span key={feature}>{feature}</span>
                     ))}
                 </div>
             </div>
+            {Boolean(props.paths?.length) && (
+                <div>
+                    <h2 className='gitlab-rhs-SubscriptionHeader'>{'Files and folders (MR)'}</h2>
+                    <div className='gitlab-rhs-Features'>
+                        {props.paths?.map((path) => (
+                            <span key={path}>{path}</span>
+                        ))}
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
 
 interface SubscriptionProps {
+    paths?: string[];
     url: string;
     name: string;
     features: string[];
@@ -121,6 +132,7 @@ const Subscriptions = (props: SubscriptionsProps) => {
                     name={subscription.repository_name}
                     url={subscription.repository_url}
                     features={subscription.features}
+                    paths={subscription.paths}
                 />
             ))}
         </div>
@@ -133,6 +145,7 @@ interface SubscriptionsProps {
 }
 
 interface Subscription {
+    paths?: string[];
     repository_name: string;
     repository_url: string;
     features: string[];

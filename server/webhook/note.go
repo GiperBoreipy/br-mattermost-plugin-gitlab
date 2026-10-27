@@ -7,6 +7,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/mattermost/mattermost-plugin-gitlab/server/subscription"
+
 	"github.com/xanzy/go-gitlab"
 )
 
@@ -159,6 +161,10 @@ func (w *webhook) handleChannelMergeRequestComment(ctx context.Context, event *g
 		repo.Visibility == gitlab.PublicVisibility,
 		isConfidential,
 	)
+	subs, pathWarnings := w.filterMRPaths(ctx, subs, repo.PathWithNamespace, event.MergeRequest.IID, event.MergeRequest.Labels, func(sub *subscription.Subscription) bool {
+		return sub.MergeRequestComments() && (!isConfidential || sub.ConfidentialIssues())
+	})
+	warnings = append(warnings, pathWarnings...)
 	for _, sub := range subs {
 		if !sub.MergeRequestComments() {
 			continue
