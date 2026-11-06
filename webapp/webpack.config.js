@@ -8,6 +8,12 @@ module.exports = {
         './src/index.ts',
     ],
     resolve: {
+
+        // Older Mattermost clients don't expose the React 19 JSX runtimes.
+        alias: {
+            'react/jsx-runtime$': path.resolve(__dirname, 'src/compat/jsx-runtime.js'),
+            'react/jsx-dev-runtime$': path.resolve(__dirname, 'src/compat/jsx-runtime.js'),
+        },
         modules: [
             'src',
             'node_modules',
@@ -46,8 +52,6 @@ module.exports = {
         react: 'React',
         'react-dom': 'ReactDOM',
         'react-dom/client': 'ReactDOM',
-        'react/jsx-runtime': 'ReactJSXRuntime',
-        'react/jsx-dev-runtime': 'ReactJSXDevRuntime',
         redux: 'Redux',
         'react-redux': 'ReactRedux',
         'prop-types': 'PropTypes',

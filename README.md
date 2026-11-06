@@ -43,6 +43,14 @@ Each user in Mattermost is connected with their own personal GitLab account. Use
 Team members can stay up-to-date with how many reviews, todos, assigned issues, and assigned merge requests they have by using buttons in the Mattermost sidebar.
 
 ## Development
+
+### Mattermost compatibility
+
+The plugin requires Mattermost 10.7.0 or later, including 11.x and 12.x.
+The web app uses the host React instance with a JSX compatibility adapter,
+so it does not require the JSX runtime globals introduced in Mattermost 12.
+The optional Agents MCP integration requires Mattermost 11.3.0 or later;
+on older servers it is skipped without disabling the GitLab integration.
   
 This plugin contains both a server and web app portion. Read our documentation about the [Developer Workflow](https://developers.mattermost.com/integrate/plugins/developer-workflow/) and [Developer Setup](https://developers.mattermost.com/integrate/plugins/developer-setup/) for more information about developing and extending plugins.
   
@@ -114,4 +122,3 @@ To trigger a release, follow these steps:
     make major-rc
     ```
    This will release a major release candidate.
-
